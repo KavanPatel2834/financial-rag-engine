@@ -1,0 +1,12 @@
+streamlit
+python-dotenv
+openai
+git+https://github.com/langchain-ai/langchain.git
+langchain
+langchain-openai
+langchain-community
+chromadb
+sentence-transformers
+pypdf
+tiktoken
+faiss-cpu
