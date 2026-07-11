@@ -1,12 +1,8 @@
-streamlit
-python-dotenv
-openai
-git+https://github.com/langchain-ai/langchain.git
+fastapi
+uvicorn
 langchain
+langgraph
 langchain-openai
-langchain-community
-chromadb
+pgvector
+psycopg2-binary
 sentence-transformers
-pypdf
-tiktoken
-faiss-cpu
