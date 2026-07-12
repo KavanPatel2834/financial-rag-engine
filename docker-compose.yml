@@ -4,7 +4,7 @@ services:
   db:
     image: pgvector/pgvector:pg16
     container_name: rag_pgvector_db
-    restart:always
+    restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -12,7 +12,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      -pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
 
 volumes:
   pgdata:
