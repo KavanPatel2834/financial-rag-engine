@@ -1,8 +1,12 @@
 fastapi
 uvicorn
 langchain
+langchain-community
 langgraph
 langchain-openai
 pgvector
 psycopg2-binary
 sentence-transformers
+python-dotenv
+tiktoken
+langchain-text-splitters
