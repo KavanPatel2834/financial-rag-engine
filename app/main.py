@@ -23,7 +23,7 @@ class QueryRequest(BaseModel):
 
 class QueryResponse(BaseModel):
     answer: str
-    source_documents: list = []
+    source_documents: list[str]
 
 @app.get("/")
 async def health_check():
@@ -54,22 +54,43 @@ Question: {question}
 Answer:"""
 prompt = ChatPromptTemplate.from_template(template)
 
-def format_docs(docs):
-    return "\n\n".join(doc.page_content for doc in docs)
+generation_chain = prompt | llm | StrOutputParser()
 
-rag_chain = (
-    {"context": retriever | format_docs, "question": RunnablePassthrough()}
-    | prompt
-    | llm
-    | StrOutputParser()
-)
+# def format_docs(docs):
+#     return "\n\n".join(doc.page_content for doc in docs)
+
+# rag_chain = (
+#     {"context": retriever | format_docs, "question": RunnablePassthrough()}
+#     | prompt
+#     | llm
+#     | StrOutputParser()
+# )
 # -----------------------------------
 
 @app.post("/query",response_model=QueryResponse)
 async def ask_finacial_question(request: QueryRequest):
     try:
-        # Pass the user's question from the API request to the RAG pipeline
-        response = rag_chain.invoke(request.question)
-        return QueryResponse(answer=response)
+        # # Pass the user's question from the API request to the RAG pipeline
+        # response = rag_chain.invoke(request.question)
+        # return QueryResponse(answer=response)
+
+        #Step 1: Manually trigger the database search and save the documents
+        docs = retriever.invoke(request.question)   
+        
+        #Step 2: Manually trigger the prompt and LLM generation using the retrieved documents
+        context_text = "\n\n".join(doc.page_content for doc in docs)
+        
+        #Step 3: Create the prompt with the context and question
+        answer = generation_chain.invoke({
+            "context": context_text,
+              "question": request.question
+              })
+        
+        #Extract the raw text from the answer and return it along with the source documents
+        sources = [doc.page_content for doc in docs]
+
+        # Step 5: Package it all up in our strict pydantic JSON structure
+        return QueryResponse(answer=answer, source_documents=sources)
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
