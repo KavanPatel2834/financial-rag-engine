@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -12,10 +13,18 @@ from app.database.config import DATABASE_URL
 
 load_dotenv()
 
+# THE DOCKER BYPASS
+if os.path.exists("/.dockerenv"):
+    print("Running inside Docker! Using the internal network.")
+    DATABASE_URL = "postgresql+psycopg://postgres:supersecretpassword@db:5432/rag_db"
+else:
+    print("Running locally! Using localhost.")
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:supersecretpassword@localhost:5432/rag_db")
+
 app = FastAPI(
-    title="Financial RAG Engine",
-    description="A Retrieval-Augmented Generation (RAG) engine for financial data using LangChain and OpenAI.",
-    version="1.0.0"
+    title="Financial RAG Engine API",
+    description="An AI-powered API that answers financial questions and provides source evidence.",
+    version="1.1.0"
 )
 
 class QueryRequest(BaseModel):

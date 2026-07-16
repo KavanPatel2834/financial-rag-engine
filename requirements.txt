@@ -2,9 +2,9 @@ fastapi
 uvicorn
 pydantic
 python-dotenv
-langchain
 langchain-openai
+langchain-core
 langchain-community
-langchain-text-splitters
-psycopg2-binary
 pgvector
+psycopg[binary]
+langchain-text-splitters
