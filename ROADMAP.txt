@@ -1,0 +1,33 @@
+# Financial RAG Engine - Project Todo List & Future Features
+
+This is the exact feature roadmap for the financial-rag-engine repository.
+
+## Task 1: Automate Data Ingestion from the SEC (app/database/ingest.py)
+*   Modify `ingest.py` to stop loading local hardcoded text/PDF files.
+*   Install `edgartools` or `sec-edgar-downloader` inside the Docker container.
+*   Add an automated function that uses a company ticker (like "AAPL" or "TSLA") to connect to the SEC EDGAR API and check for the latest 10-Q quarterly filing.
+*   Write an automatic downloader function to fetch the raw text of the filing into the pipeline.
+
+## Task 2: Implement Database Upsert & Prevent Duplicates (app/database/ingest.py)
+*   Modify the database insertion code to assign a unique ID string to each chunk (e.g., `AAPL_2026_Q3_chunk_1`).
+*   Update the database execution step to use an `UPSERT` (ON CONFLICT DO UPDATE) query. This ensures that if the daily cron job downloads a filing that is already embedded, it updates the existing vector instead of adding a duplicate.
+
+## Task 3: Schedule the Daily Pipeline (docker-compose.yml & ingest.py)
+*   Install `APScheduler` or write a Python `while True` loop with a time sleep.
+*   Configure the script to execute silently every day at 5:00 PM.
+*   Keep this automated ingestion loop running as a detached background service inside Docker.
+
+## Task 4: Upgrade to Layout-Aware & Semantic Chunking (app/database/ingest.py)
+*   Replace LangChain's basic `RecursiveCharacterTextSplitter`.
+*   Integrate the `Unstructured` library or use a layout parser to detect and extract financial tables cleanly so they don't break in half.
+*   Implement Semantic Chunking so the code splits text based on complete financial clauses and sentences, rather than an arbitrary character count.
+
+## Task 5: Add Full-Text Hybrid Search (app/main.py & PostgreSQL)
+*   Configure the PGVector database container to also support PostgreSQL's native Full-Text Search vectors (`tsvector`).
+*   Rewrite the search route in `app/main.py` to perform a dual query: a dense vector search (semantic) and a sparse text search (keyword matching for specific financial numbers).
+*   Implement the Reciprocal Rank Fusion (RRF) algorithm in Python to merge the two search results into one perfect list for the LLM.
+
+## Task 6: Implement Multi-Turn Chat Memory (app/main.py)
+*   Create a new database table in PostgreSQL called `chat_history` to store user questions and assistant answers by session ID.
+*   Update the `POST /query` endpoint to accept a `session_id`.
+*   Modify the LLM chain to retrieve the last 3-5 exchanges from that session ID, combining past context with the new question before searching the vector database.
