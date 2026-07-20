@@ -8,3 +8,4 @@ langchain-community
 pgvector
 psycopg[binary]
 langchain-text-splitters
+edgartools==3.0.3
