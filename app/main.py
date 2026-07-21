@@ -7,19 +7,11 @@ from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
-from langchain_community.vectorstores import PGVector
-
+from langchain_postgres import PGVector
+from langchain_core.runnables import RunnablePassthrough, RunnableParallel
 from app.database.config import DATABASE_URL
 
 load_dotenv()
-
-# THE DOCKER BYPASS
-if os.path.exists("/.dockerenv"):
-    print("Running inside Docker! Using the internal network.")
-    DATABASE_URL = "postgresql+psycopg://postgres:supersecretpassword@db:5432/rag_db"
-else:
-    print("Running locally! Using localhost.")
-    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:supersecretpassword@localhost:5432/rag_db")
 
 app = FastAPI(
     title="Financial RAG Engine API",
@@ -44,8 +36,8 @@ async def health_check():
 
 embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 db = PGVector(
-    connection_string=DATABASE_URL,
-    embedding_function=embeddings,
+    connection=DATABASE_URL,
+    embeddings=embeddings,
     collection_name="financial_reports",
     use_jsonb=True,
 )
@@ -65,41 +57,29 @@ prompt = ChatPromptTemplate.from_template(template)
 
 generation_chain = prompt | llm | StrOutputParser()
 
-# def format_docs(docs):
-#     return "\n\n".join(doc.page_content for doc in docs)
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
 
-# rag_chain = (
-#     {"context": retriever | format_docs, "question": RunnablePassthrough()}
-#     | prompt
-#     | llm
-#     | StrOutputParser()
-# )
-# -----------------------------------
+# This is the final, efficient RAG chain. It retrieves documents once,
+# generates an answer, and passes the source documents through for citation.
+rag_chain = (
+    RunnableParallel(
+        context=retriever | format_docs,
+        question=RunnablePassthrough(),
+        source_documents=retriever,
+    )
+    | RunnableParallel(
+        answer=prompt | llm | StrOutputParser(),
+        source_documents=lambda x: x["source_documents"],
+    )
+)
 
 @app.post("/query",response_model=QueryResponse)
 async def ask_finacial_question(request: QueryRequest):
     try:
-        # # Pass the user's question from the API request to the RAG pipeline
-        # response = rag_chain.invoke(request.question)
-        # return QueryResponse(answer=response)
-
-        #Step 1: Manually trigger the database search and save the documents
-        docs = retriever.invoke(request.question)   
-        
-        #Step 2: Manually trigger the prompt and LLM generation using the retrieved documents
-        context_text = "\n\n".join(doc.page_content for doc in docs)
-        
-        #Step 3: Create the prompt with the context and question
-        answer = generation_chain.invoke({
-            "context": context_text,
-              "question": request.question
-              })
-        
-        #Extract the raw text from the answer and return it along with the source documents
-        sources = [doc.page_content for doc in docs]
-
-        # Step 5: Package it all up in our strict pydantic JSON structure
-        return QueryResponse(answer=answer, source_documents=sources)
+        result = rag_chain.invoke(request.question)
+        result['source_documents'] = [doc.page_content for doc in result['source_documents']]
+        return QueryResponse(**result)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
