@@ -10,16 +10,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_postgres import PGVector
 from app.database.config import DATABASE_URL
-# load_dotenv()
 
-# # The same robust Docker bypass we used in main.py
-# if os.path.exists("/.dockerenv"):
-#     print("Running inside Docker! Using the internal network.")
-#     DATABASE_URL = "postgresql+psycopg://postgres:supersecretpassword@db:5432/rag_db"
-# else:
-#     print("Running locally! Using localhost.")
-#     DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:supersecretpassword@localhost:5432/rag_db")
-
+from langchain_text_splitters import MarkdownHeaderTextSplitter,RecursiveCharacterTextSplitter
+load_dotenv()
 
 # def fetch_and_ingest_sec_filing(ticker: str, form_type: str = "10-Q"):
 #     """
@@ -99,31 +92,53 @@ def fetch_and_embed_latest_10q(ticker="AAPL"):
     filing = company.get_filings(form="10-Q")[0]
     print(f"Downloaded {ticker} 10-Q filed on {filing.filing_date}")
     
-    # 3. Extract clean text
-    filing_obj = filing.obj()
-    text = filing_obj.text()
+   # 3. Extract clean text
+    print("Extracting markdown text...")
+    text = filing.markdown() 
     
     # 4. Chunk the text
-    print("Chunking text...")
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    chunks = splitter.split_text(text)
+    # print("Chunking text...")
+    # splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    # chunks = splitter.split_text(text)
+    
+    print("Chunking text using MarkdownHeaderTextSplitter...")
+    #Stage 1: Split the document by SEC header and attach headers to metadata
+    headers_to_split_on = [
+        ("#", "Heading 1"),
+        ("##", "Heading 2"),
+        ("###", "Heading 3"),
+    ]
+    markdown_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
+    md_header_splits = markdown_splitter.split_text(text)
+
+    # Stage 2: If a specific SEC section is still too massive,gently split it preserving the new metadata
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
+    chunks = text_splitter.split_documents(md_header_splits)
     
     # 5. Create Documents and unique IDs for Upserting (Task 2)
     documents = []
     ids = []
-    for i, chunk in enumerate(chunks):
+    for i, chunk_doc in enumerate(chunks):
         # Creating a unique ID prevents duplicates if the script runs twice
         doc_id = f"{ticker}_{filing.accession_no}_chunk_{i}"
         
-        doc = Document(
-            page_content=chunk, 
-            metadata={
-                "source": "SEC", 
-                "ticker": ticker, 
-                "date": filing.filing_date
-            }
-        )
-        documents.append(doc)
+        # doc = Document(
+        #     page_content=chunk, 
+        #     metadata={
+        #         "source": "SEC", 
+        #         "ticker": ticker, 
+        #         "date": str(filing.filing_date)
+        #     }
+        # )
+        # documents.append(doc)
+
+        # Merge our custom metadata (ticker,date) with the structural Markdown metadata
+        chunk_doc.metadata.update({
+            "source": "SEC",
+            "ticker": ticker,
+            "date": str(filing.filing_date)
+        })
+        documents.append(chunk_doc)
         ids.append(doc_id)
         
     print(f"Upserting {len(documents)} chunks into PGVector...")
@@ -131,9 +146,9 @@ def fetch_and_embed_latest_10q(ticker="AAPL"):
     # 6. Database Upsert
     embeddings = OpenAIEmbeddings()
     db = PGVector(
-        connection_string=DATABASE_URL,
-        embedding_function=embeddings,
-        collection_name="financial_docs" # Change this if your collection is named differently
+        connection=DATABASE_URL,
+        embeddings=embeddings,
+        collection_name="financial_reports"
     )
     
     # Passing ids to add_documents ensures it updates existing rows instead of duplicating

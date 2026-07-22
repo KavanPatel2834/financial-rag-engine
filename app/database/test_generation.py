@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_community.vectorstores import PGVector
+from langchain_postgres import PGVector
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
@@ -14,8 +14,8 @@ def run_rag_pipeline():
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
     db = PGVector(
-        connection_string=DATABASE_URL,
-        embedding_function=embeddings,
+        connection=DATABASE_URL,
+        embeddings=embeddings,
         collection_name="financial_reports",
         use_jsonb=True,
     )

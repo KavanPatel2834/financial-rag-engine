@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import PGVector
+from langchain_postgres import PGVector
 
 from app.database.config import DATABASE_URL
 
@@ -14,8 +14,8 @@ def run_test_query():
     # Connect to the PostgreSQL vector store
     db = PGVector(
         collection_name="financial_reports",
-        connection_string=DATABASE_URL,
-        embedding_function=embedding,
+        connection=DATABASE_URL,
+        embeddings=embedding,
     )
 
     # Perform a test query
