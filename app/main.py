@@ -1,7 +1,8 @@
 import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from dotenv import load_dotenv
+from sqlalchemy import select, Table, MetaData
+from sqlalchemy.exc import NoSuchTableError
 
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -9,6 +10,10 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain_postgres import PGVector
 from langchain_core.runnables import RunnablePassthrough, RunnableParallel
+from langchain_core.documents import Document
+from langchain_community.retrievers import BM25Retriever
+
+from dotenv import load_dotenv
 from app.database.config import DATABASE_URL
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -68,8 +73,53 @@ db = PGVector(
     collection_name="financial_reports",
     use_jsonb=True,
 )
-retriever = db.as_retriever(search_kwargs={"k": 4})
 
+# 1. Vector Store Retriever (Semantic Search)
+vector_retriever = db.as_retriever(search_kwargs={"k": 5})
+
+# 2. Keyword Retriever (BM25)
+# We need to fetch all docs to initialize this. This is a one-time setup cost.
+print("Initializing keyword retriever...")
+
+all_docs = []
+metadata = MetaData()
+try:
+    # The PGVector class does not have a 'get_documents' method.
+    # We can fetch all documents by reflecting the table from the database using SQLAlchemy.
+    with db._engine.connect() as conn:
+        # Reflect the table structure from the database using the known collection name
+        collection_table = Table(
+            db.collection_name, 
+            metadata, 
+            autoload_with=conn
+        )
+        # Execute a select query on the reflected table
+        result = conn.execute(select(collection_table))
+        all_docs = [Document(page_content=row.document, metadata=row.cmetadata) for row in result]
+except NoSuchTableError:
+    print("WARNING: 'financial_reports' table not found. BM25Retriever will be initialized with no documents.")
+    print("Please run the ingestion script (e.g., 'python -m app.database.ingest') to populate the database.")
+
+keyword_retriever = BM25Retriever.from_documents(all_docs)
+keyword_retriever.k = 5
+
+# 3. Manual Hybrid Search with Reciprocal Rank Fusion (RRF)
+def reciprocal_rank_fusion(results: list[list], k=60):
+    fused_scores = {}
+    for docs in results:
+        # Assumes the docs are returned in sorted order of relevance
+        for rank, doc in enumerate(docs):
+            doc_str = doc.page_content
+            if doc_str not in fused_scores:
+                fused_scores[doc_str] = 0
+            fused_scores[doc_str] += 1 / (rank + k)
+
+    reranked_results = [
+        (doc, score) for doc, score in fused_scores.items()
+    ]
+    reranked_results.sort(key=lambda x: x[1], reverse=True)
+    # Return the documents in their new sorted order
+    return [doc for doc, _ in reranked_results]
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 template = """You are a helpful financial assistant. Answer the question using ONLY the following context.
@@ -105,12 +155,25 @@ def format_docs(docs):
 
 
     # return "\n\n".join(doc.page_content for doc in docs)
+# This runnable takes a query, runs both retrievers in parallel, and then fuses the results.
+hybrid_retriever = RunnableParallel(
+    vector=vector_retriever,
+    keyword=keyword_retriever
+).assign(
+    fused_documents=lambda x: reciprocal_rank_fusion([x["vector"], x["keyword"]])
+)
+
+# Helper function to extract just the fused documents from the hybrid retriever's output
+def get_fused_documents(chain_input):
+    return chain_input["fused_documents"]
+
 
 # This is the final, efficient RAG chain. It retrieves documents once and
 # reuses them for both context formatting and for passing through as sources.
 rag_chain = (
     {"question": RunnablePassthrough()}
-    | RunnablePassthrough.assign(source_documents=retriever)
+    |
+    RunnablePassthrough.assign(source_documents=hybrid_retriever | get_fused_documents)
     | RunnablePassthrough.assign(context=lambda x: format_docs(x["source_documents"]))
     | {
         "answer": generation_chain,
@@ -121,6 +184,21 @@ rag_chain = (
 @app.post("/query",response_model=QueryResponse)
 async def ask_finacial_question(request: QueryRequest):
     try:
+        # --- TEMPORARY DEBUGGING ---
+        print("\n--- DEBUGGING HYBRID SEARCH ---")
+        question = request.question
+
+        print("\n1. VECTOR (SEMANTIC) SEARCH RESULTS:")
+        vector_results = vector_retriever.invoke(question)
+        for i, doc in enumerate(vector_results):
+            print(f"  [{i+1}] {doc.page_content[:100]}...")
+
+        print("\n2. BM25 (KEYWORD) SEARCH RESULTS:")
+        bm25_results = keyword_retriever.invoke(question)
+        for i, doc in enumerate(bm25_results):
+            print(f"  [{i+1}] {doc.page_content[:100]}...")
+        # --- END TEMPORARY DEBUGGING ---
+
         result = rag_chain.invoke(request.question)
         # result['source_documents'] = [doc.page_content for doc in result['source_documents']]
         # Return both the content AND the metadata to the frontend
