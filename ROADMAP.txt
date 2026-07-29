@@ -27,7 +27,3 @@ This is the exact feature roadmap for the financial-rag-engine repository.
 *   Rewrite the search route in `app/main.py` to perform a dual query: a dense vector search (semantic) and a sparse text search (keyword matching for specific financial numbers).
 *   Implement the Reciprocal Rank Fusion (RRF) algorithm in Python to merge the two search results into one perfect list for the LLM.
 
-## Task 6: Implement Multi-Turn Chat Memory (app/main.py)
-*   Create a new database table in PostgreSQL called `chat_history` to store user questions and assistant answers by session ID.
-*   Update the `POST /query` endpoint to accept a `session_id`.
-*   Modify the LLM chain to retrieve the last 3-5 exchanges from that session ID, combining past context with the new question before searching the vector database.
