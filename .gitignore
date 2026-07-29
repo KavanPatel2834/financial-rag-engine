@@ -1,4 +1,13 @@
+# Environment variables
+# Never commit this file!
 .env
-.venv/
+
+# Python cache and virtual environments
 __pycache__/
-.vscode/
+*.pyc
+venv/
+.venv/
+env/
+
+# Docker data volumes
+pgdata/
